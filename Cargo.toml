@@ -1,0 +1,37 @@
+[package]
+name = "sandbox-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "OS-level sandboxing for command execution (macOS Seatbelt, Linux bubblewrap+seccomp)"
+repository = "https://github.com/NeboLoop/sandbox-runtime"
+keywords = ["sandbox", "security", "seatbelt", "bubblewrap", "seccomp"]
+categories = ["os", "command-line-utilities"]
+
+[features]
+default = []
+cli = ["dep:clap", "dep:ctrlc", "dep:libc"]
+
+[[bin]]
+name = "nebo"
+path = "src/cli.rs"
+required-features = ["cli"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+base64 = "0.22"
+regex = "1"
+dirs = "6"
+tracing = "0.1"
+shell-escape = "0.1"
+clap = { version = "4", features = ["derive"], optional = true }
+rand = "0.8"
+ctrlc = { version = "3.5.2", optional = true }
+libc = { version = "0.2.182", optional = true }
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
