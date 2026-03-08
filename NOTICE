@@ -1,0 +1,6 @@
+sandbox-runtime
+Copyright 2026 NeboLoop, LLC
+
+This project was inspired by @anthropic-ai/sandbox-runtime (TypeScript),
+originally created by Anthropic, PBC and licensed under the Apache License 2.0.
+https://github.com/anthropics/sandbox-runtime
