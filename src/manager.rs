@@ -90,7 +90,7 @@ impl SandboxManager {
         }
 
         let mut errors = Vec::new();
-        let warnings = Vec::new();
+        let mut warnings = Vec::new();
 
         // Check ripgrep
         let rg_config = self
