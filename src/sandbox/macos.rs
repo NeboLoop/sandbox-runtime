@@ -612,6 +612,403 @@ pub fn wrap_command_with_sandbox_macos(params: MacOSSandboxParams) -> crate::err
     Ok(wrapped)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- session_suffix / log_tag tests ---
+
+    #[test]
+    fn test_session_suffix_format() {
+        let suffix = session_suffix();
+        assert!(suffix.starts_with('_'));
+        assert!(suffix.ends_with("_SBX"));
+        // Total length: _ + 9 chars + _SBX = 14
+        assert_eq!(suffix.len(), 14);
+    }
+
+    #[test]
+    fn test_generate_log_tag_format() {
+        let tag = generate_log_tag("echo hello");
+        assert!(tag.starts_with("CMD64_"));
+        assert!(tag.contains("_END_"));
+        assert!(tag.ends_with("_SBX"));
+    }
+
+    // --- mandatory deny patterns ---
+
+    #[test]
+    fn test_mandatory_deny_patterns_contains_dangerous_files() {
+        let patterns = mac_get_mandatory_deny_patterns(false);
+        // Should have glob patterns for dangerous files
+        assert!(patterns.iter().any(|p| p.contains(".bashrc")));
+        assert!(patterns.iter().any(|p| p.contains(".gitconfig")));
+        assert!(patterns.iter().any(|p| p.contains(".mcp.json")));
+    }
+
+    #[test]
+    fn test_mandatory_deny_patterns_git_config_blocked_by_default() {
+        let patterns = mac_get_mandatory_deny_patterns(false);
+        assert!(patterns.iter().any(|p| p.contains(".git/config")));
+    }
+
+    #[test]
+    fn test_mandatory_deny_patterns_git_config_allowed_when_toggled() {
+        let patterns = mac_get_mandatory_deny_patterns(true);
+        // When allow_git_config is true, .git/config should NOT be in deny patterns
+        assert!(!patterns.iter().any(|p| p == "**/.git/config"));
+    }
+
+    #[test]
+    fn test_mandatory_deny_patterns_git_hooks_always_blocked() {
+        let patterns_allowed = mac_get_mandatory_deny_patterns(true);
+        let patterns_denied = mac_get_mandatory_deny_patterns(false);
+        assert!(patterns_allowed.iter().any(|p| p.contains(".git/hooks")));
+        assert!(patterns_denied.iter().any(|p| p.contains(".git/hooks")));
+    }
+
+    #[test]
+    fn test_mandatory_deny_patterns_contains_dangerous_directories() {
+        let patterns = mac_get_mandatory_deny_patterns(false);
+        assert!(patterns.iter().any(|p| p.contains(".vscode")));
+        assert!(patterns.iter().any(|p| p.contains(".idea")));
+        assert!(patterns.iter().any(|p| p.contains(".nebo/commands")));
+        assert!(patterns.iter().any(|p| p.contains(".nebo/agents")));
+    }
+
+    // --- read rules tests ---
+
+    #[test]
+    fn test_read_rules_no_config() {
+        let rules = generate_read_rules(&None, "TAG");
+        assert!(rules.contains(&"(allow file-read*)".to_string()));
+        assert_eq!(rules.len(), 1);
+    }
+
+    #[test]
+    fn test_read_rules_with_deny_paths() {
+        let config = FsReadRestrictionConfig {
+            deny_only: vec!["/secret".to_string()],
+        };
+        let rules = generate_read_rules(&Some(config), "TAG");
+        assert!(rules.iter().any(|r| r.contains("allow file-read*")));
+        assert!(rules.iter().any(|r| r.contains("deny file-read*")));
+        assert!(rules.iter().any(|r| r.contains("/secret")));
+    }
+
+    #[test]
+    fn test_read_rules_with_glob_deny() {
+        let config = FsReadRestrictionConfig {
+            deny_only: vec!["**/.env".to_string()],
+        };
+        let rules = generate_read_rules(&Some(config), "TAG");
+        assert!(rules.iter().any(|r| r.contains("regex")));
+    }
+
+    // --- write rules tests ---
+
+    #[test]
+    fn test_write_rules_no_config() {
+        let rules = generate_write_rules(&None, "TAG", false);
+        assert!(rules.contains(&"(allow file-write*)".to_string()));
+        assert_eq!(rules.len(), 1);
+    }
+
+    #[test]
+    fn test_write_rules_with_allow_paths() {
+        let config = FsWriteRestrictionConfig {
+            allow_only: vec!["/tmp/allowed".to_string()],
+            deny_within_allow: vec![],
+        };
+        let rules = generate_write_rules(&Some(config), "TAG", false);
+        assert!(rules.iter().any(|r| r.contains("allow file-write*")));
+        assert!(rules.iter().any(|r| r.contains("/tmp/allowed") || r.contains("/private/tmp/allowed")));
+    }
+
+    #[test]
+    fn test_write_rules_mandatory_deny_included() {
+        let config = FsWriteRestrictionConfig {
+            allow_only: vec!["/tmp".to_string()],
+            deny_within_allow: vec![],
+        };
+        let rules = generate_write_rules(&Some(config), "TAG", false);
+        // Mandatory deny patterns should be included
+        assert!(rules.iter().any(|r| r.contains("deny file-write*")));
+    }
+
+    // --- sandbox profile tests ---
+
+    #[test]
+    fn test_sandbox_profile_minimal() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            false,
+            &None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(profile.contains("(version 1)"));
+        assert!(profile.contains("TEST_TAG"));
+        assert!(profile.contains("(allow network*)"));
+        assert!(profile.contains("(allow file-read*)"));
+        assert!(profile.contains("(allow file-write*)"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_network_restricted() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            Some(8080),
+            Some(1080),
+            true,
+            &None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(!profile.contains("(allow network*)"));
+        assert!(profile.contains("localhost:8080"));
+        assert!(profile.contains("localhost:1080"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_with_pty() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            false,
+            &None,
+            None,
+            None,
+            Some(true),
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(profile.contains("pseudo-tty"));
+        assert!(profile.contains("/dev/ptmx"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_without_pty() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            false,
+            &None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(!profile.contains("pseudo-tty"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_with_unix_sockets() {
+        let sockets = vec!["/tmp/test.sock".to_string()];
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            true,
+            &Some(sockets),
+            None,
+            None,
+            None,
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(profile.contains("AF_UNIX"));
+        assert!(profile.contains("test.sock") || profile.contains("/tmp/test.sock") || profile.contains("/private/tmp/test.sock"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_with_all_unix_sockets() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            true,
+            &None,
+            Some(true),
+            None,
+            None,
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(profile.contains("AF_UNIX"));
+        assert!(profile.contains("path-regex"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_with_local_binding() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            true,
+            &None,
+            None,
+            Some(true),
+            None,
+            false,
+            false,
+            "TEST_TAG",
+        );
+        assert!(profile.contains("network-bind"));
+        assert!(profile.contains("network-inbound"));
+    }
+
+    #[test]
+    fn test_sandbox_profile_weaker_network_isolation() {
+        let profile = generate_sandbox_profile(
+            &None,
+            &None,
+            None,
+            None,
+            false,
+            &None,
+            None,
+            None,
+            None,
+            false,
+            true,
+            "TEST_TAG",
+        );
+        assert!(profile.contains("trustd.agent"));
+    }
+
+    // --- wrap_command tests ---
+
+    #[test]
+    fn test_wrap_command_no_restrictions_returns_original() {
+        let params = MacOSSandboxParams {
+            command: "echo hello".to_string(),
+            needs_network_restriction: false,
+            http_proxy_port: None,
+            socks_proxy_port: None,
+            allow_unix_sockets: None,
+            allow_all_unix_sockets: None,
+            allow_local_binding: None,
+            read_config: None,
+            write_config: None,
+            ignore_violations: None,
+            allow_pty: None,
+            allow_git_config: false,
+            enable_weaker_network_isolation: false,
+            bin_shell: None,
+        };
+        let result = wrap_command_with_sandbox_macos(params).unwrap();
+        assert_eq!(result, "echo hello");
+    }
+
+    #[test]
+    fn test_wrap_command_with_write_restrictions_includes_sandbox_exec() {
+        let params = MacOSSandboxParams {
+            command: "echo hello".to_string(),
+            needs_network_restriction: false,
+            http_proxy_port: None,
+            socks_proxy_port: None,
+            allow_unix_sockets: None,
+            allow_all_unix_sockets: None,
+            allow_local_binding: None,
+            read_config: None,
+            write_config: Some(FsWriteRestrictionConfig {
+                allow_only: vec!["/tmp".to_string()],
+                deny_within_allow: vec![],
+            }),
+            ignore_violations: None,
+            allow_pty: None,
+            allow_git_config: false,
+            enable_weaker_network_isolation: false,
+            bin_shell: None,
+        };
+        let result = wrap_command_with_sandbox_macos(params).unwrap();
+        assert!(result.contains("sandbox-exec"));
+        assert!(result.contains("echo hello"));
+    }
+
+    #[test]
+    fn test_wrap_command_with_network_restriction() {
+        let params = MacOSSandboxParams {
+            command: "curl example.com".to_string(),
+            needs_network_restriction: true,
+            http_proxy_port: Some(8080),
+            socks_proxy_port: Some(1080),
+            allow_unix_sockets: None,
+            allow_all_unix_sockets: None,
+            allow_local_binding: None,
+            read_config: None,
+            write_config: Some(FsWriteRestrictionConfig {
+                allow_only: vec!["/tmp".to_string()],
+                deny_within_allow: vec![],
+            }),
+            ignore_violations: None,
+            allow_pty: None,
+            allow_git_config: false,
+            enable_weaker_network_isolation: false,
+            bin_shell: None,
+        };
+        let result = wrap_command_with_sandbox_macos(params).unwrap();
+        assert!(result.contains("sandbox-exec"));
+        assert!(result.contains("SANDBOX_RUNTIME=1"));
+    }
+
+    // --- escape_path ---
+
+    #[test]
+    fn test_escape_path_basic() {
+        let escaped = escape_path("/tmp/test");
+        assert_eq!(escaped, "\"/tmp/test\"");
+    }
+
+    #[test]
+    fn test_escape_path_with_special_chars() {
+        let escaped = escape_path("/path with spaces/file");
+        assert!(escaped.starts_with('"'));
+        assert!(escaped.ends_with('"'));
+    }
+
+    // --- move blocking rules ---
+
+    #[test]
+    fn test_move_blocking_rules_subpath() {
+        let rules = generate_move_blocking_rules(&["/protected".to_string()], "TAG");
+        assert!(rules.iter().any(|r| r.contains("file-write-unlink")));
+        assert!(rules.iter().any(|r| r.contains("subpath")));
+    }
+
+    #[test]
+    fn test_move_blocking_rules_glob() {
+        let rules = generate_move_blocking_rules(&["**/.secret".to_string()], "TAG");
+        assert!(rules.iter().any(|r| r.contains("file-write-unlink")));
+        assert!(rules.iter().any(|r| r.contains("regex")));
+    }
+}
+
 /// Start monitoring macOS system logs for sandbox violations.
 /// Returns a handle that kills the monitor process when dropped.
 pub fn start_macos_sandbox_log_monitor(

@@ -145,4 +145,63 @@ mod tests {
         assert!(vars.iter().any(|v| v == "HTTP_PROXY=http://localhost:8080"));
         assert!(vars.iter().any(|v| v == "ALL_PROXY=socks5h://localhost:1080"));
     }
+
+    #[test]
+    fn test_encode_empty_string() {
+        let encoded = encode_sandboxed_command("");
+        let decoded = decode_sandboxed_command(&encoded).unwrap();
+        assert_eq!(decoded, "");
+    }
+
+    #[test]
+    fn test_decode_invalid_base64() {
+        assert!(decode_sandboxed_command("!!!not-base64!!!").is_none());
+    }
+
+    #[test]
+    fn test_special_char_roundtrip() {
+        let cmd = "echo 'hello world' | grep -E \"[a-z]+\" && rm -rf /tmp/test";
+        let encoded = encode_sandboxed_command(cmd);
+        let decoded = decode_sandboxed_command(&encoded).unwrap();
+        assert_eq!(decoded, cmd);
+    }
+
+    #[test]
+    fn test_proxy_env_vars_http_only() {
+        let vars = generate_proxy_env_vars(Some(8080), None);
+        assert!(vars.iter().any(|v| v == "HTTP_PROXY=http://localhost:8080"));
+        assert!(vars.iter().any(|v| v == "HTTPS_PROXY=http://localhost:8080"));
+        assert!(!vars.iter().any(|v| v.starts_with("ALL_PROXY=")));
+    }
+
+    #[test]
+    fn test_proxy_env_vars_socks_only() {
+        let vars = generate_proxy_env_vars(None, Some(1080));
+        assert!(!vars.iter().any(|v| v.starts_with("HTTP_PROXY=")));
+        assert!(vars.iter().any(|v| v == "ALL_PROXY=socks5h://localhost:1080"));
+    }
+
+    #[test]
+    fn test_proxy_env_vars_always_includes_sandbox_runtime() {
+        let vars = generate_proxy_env_vars(None, None);
+        assert!(vars.iter().any(|v| v == "SANDBOX_RUNTIME=1"));
+    }
+
+    #[test]
+    fn test_proxy_env_vars_always_includes_tmpdir() {
+        let vars = generate_proxy_env_vars(None, None);
+        assert!(vars.iter().any(|v| v.starts_with("TMPDIR=")));
+    }
+
+    #[test]
+    fn test_default_write_paths_includes_dev_null() {
+        let paths = get_default_write_paths();
+        assert!(paths.contains(&"/dev/null".to_string()));
+    }
+
+    #[test]
+    fn test_default_write_paths_includes_tmp_nebo() {
+        let paths = get_default_write_paths();
+        assert!(paths.contains(&"/tmp/nebo".to_string()));
+    }
 }

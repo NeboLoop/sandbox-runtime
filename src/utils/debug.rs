@@ -23,3 +23,30 @@ macro_rules! nebo_debug {
         $crate::utils::debug::log_for_debugging($msg, Some($level))
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_no_panic_without_debug_env() {
+        std::env::remove_var("NEBO_DEBUG");
+        log_for_debugging("test message", None);
+    }
+
+    #[test]
+    fn test_no_panic_with_debug_env() {
+        std::env::set_var("NEBO_DEBUG", "1");
+        log_for_debugging("test message", None);
+        std::env::remove_var("NEBO_DEBUG");
+    }
+
+    #[test]
+    fn test_works_with_error_and_warn_levels() {
+        std::env::set_var("NEBO_DEBUG", "1");
+        log_for_debugging("error message", Some("error"));
+        log_for_debugging("warn message", Some("warn"));
+        log_for_debugging("info message", Some("info"));
+        std::env::remove_var("NEBO_DEBUG");
+    }
+}

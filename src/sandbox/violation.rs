@@ -178,4 +178,134 @@ mod tests {
         assert_eq!(store.get_count(), 0);
         assert_eq!(store.get_total_count(), 5);
     }
+
+    #[test]
+    fn test_get_violations_with_limit() {
+        let store = SandboxViolationStore::new();
+        for i in 0..10 {
+            store.add_violation(SandboxViolationEvent {
+                line: format!("violation {i}"),
+                command: None,
+                encoded_command: None,
+                timestamp: std::time::SystemTime::now(),
+            });
+        }
+        let violations = store.get_violations(Some(3));
+        assert_eq!(violations.len(), 3);
+        // Should return the last 3
+        assert_eq!(violations[0].line, "violation 7");
+        assert_eq!(violations[1].line, "violation 8");
+        assert_eq!(violations[2].line, "violation 9");
+    }
+
+    #[test]
+    fn test_get_violations_limit_exceeds_count() {
+        let store = SandboxViolationStore::new();
+        for i in 0..3 {
+            store.add_violation(SandboxViolationEvent {
+                line: format!("violation {i}"),
+                command: None,
+                encoded_command: None,
+                timestamp: std::time::SystemTime::now(),
+            });
+        }
+        let violations = store.get_violations(Some(10));
+        assert_eq!(violations.len(), 3);
+    }
+
+    #[test]
+    fn test_get_violations_no_limit() {
+        let store = SandboxViolationStore::new();
+        for i in 0..5 {
+            store.add_violation(SandboxViolationEvent {
+                line: format!("violation {i}"),
+                command: None,
+                encoded_command: None,
+                timestamp: std::time::SystemTime::now(),
+            });
+        }
+        let violations = store.get_violations(None);
+        assert_eq!(violations.len(), 5);
+    }
+
+    #[test]
+    fn test_get_violations_for_command_match() {
+        let store = SandboxViolationStore::new();
+        let cmd = "echo hello";
+        let encoded = encode_sandboxed_command(cmd);
+        store.add_violation(SandboxViolationEvent {
+            line: "matched".to_string(),
+            command: Some(cmd.to_string()),
+            encoded_command: Some(encoded),
+            timestamp: std::time::SystemTime::now(),
+        });
+        store.add_violation(SandboxViolationEvent {
+            line: "unmatched".to_string(),
+            command: Some("other".to_string()),
+            encoded_command: Some(encode_sandboxed_command("other")),
+            timestamp: std::time::SystemTime::now(),
+        });
+        let violations = store.get_violations_for_command(cmd);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, "matched");
+    }
+
+    #[test]
+    fn test_get_violations_for_command_no_match() {
+        let store = SandboxViolationStore::new();
+        store.add_violation(SandboxViolationEvent {
+            line: "violation".to_string(),
+            command: Some("cmd1".to_string()),
+            encoded_command: Some(encode_sandboxed_command("cmd1")),
+            timestamp: std::time::SystemTime::now(),
+        });
+        let violations = store.get_violations_for_command("cmd2");
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn test_subscribe_receives_existing() {
+        let store = SandboxViolationStore::new();
+        store.add_violation(SandboxViolationEvent {
+            line: "existing".to_string(),
+            command: None,
+            encoded_command: None,
+            timestamp: std::time::SystemTime::now(),
+        });
+
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received_clone = received.clone();
+        let _id = store.subscribe(move |violations| {
+            let mut r = received_clone.lock().unwrap();
+            *r = violations.iter().map(|v| v.line.clone()).collect();
+        });
+
+        // Subscribe should immediately call with existing violations
+        let r = received.lock().unwrap();
+        assert!(r.contains(&"existing".to_string()));
+    }
+
+    #[test]
+    fn test_unsubscribe() {
+        let store = SandboxViolationStore::new();
+        let call_count = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        let call_count_clone = call_count.clone();
+        let id = store.subscribe(move |_| {
+            let mut c = call_count_clone.lock().unwrap();
+            *c += 1;
+        });
+        // subscribe calls immediately: count = 1
+        assert_eq!(*call_count.lock().unwrap(), 1);
+
+        store.unsubscribe(id);
+
+        // After unsubscribe, adding a violation should not increment
+        store.add_violation(SandboxViolationEvent {
+            line: "after unsub".to_string(),
+            command: None,
+            encoded_command: None,
+            timestamp: std::time::SystemTime::now(),
+        });
+        assert_eq!(*call_count.lock().unwrap(), 1);
+    }
 }

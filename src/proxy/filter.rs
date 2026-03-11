@@ -36,4 +36,40 @@ mod tests {
         assert!(matches_domain_pattern("Sub.Example.COM", "*.example.com"));
         assert!(matches_domain_pattern("LOCALHOST", "localhost"));
     }
+
+    #[test]
+    fn test_empty_hostname_returns_false() {
+        assert!(!matches_domain_pattern("", "example.com"));
+    }
+
+    #[test]
+    fn test_empty_pattern_returns_false() {
+        assert!(!matches_domain_pattern("example.com", ""));
+    }
+
+    #[test]
+    fn test_wildcard_does_not_match_base_domain() {
+        // Security property: *.example.com should NOT match example.com
+        assert!(!matches_domain_pattern("example.com", "*.example.com"));
+    }
+
+    #[test]
+    fn test_deep_subdomain_matches_wildcard() {
+        assert!(matches_domain_pattern(
+            "a.b.c.d.example.com",
+            "*.example.com"
+        ));
+    }
+
+    #[test]
+    fn test_localhost_exact_match() {
+        assert!(matches_domain_pattern("localhost", "localhost"));
+        assert!(!matches_domain_pattern("notlocalhost", "localhost"));
+    }
+
+    #[test]
+    fn test_trailing_dot_behavior() {
+        // Trailing dot in hostname should not match bare pattern
+        assert!(!matches_domain_pattern("example.com.", "example.com"));
+    }
 }

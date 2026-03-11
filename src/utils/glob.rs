@@ -199,4 +199,58 @@ mod tests {
         assert!(re.is_match(".git/config"));
         assert!(re.is_match(".git/hooks/pre-commit"));
     }
+
+    #[test]
+    fn test_glob_to_regex_bracket_expression() {
+        let regex = glob_to_regex("[abc].txt");
+        let re = regex::Regex::new(&regex).unwrap();
+        assert!(re.is_match("a.txt"));
+        assert!(re.is_match("b.txt"));
+        assert!(!re.is_match("d.txt"));
+    }
+
+    #[test]
+    fn test_glob_to_regex_unclosed_bracket() {
+        // Unclosed brackets should be escaped, not cause regex error
+        let regex = glob_to_regex("file[.txt");
+        let re = regex::Regex::new(&regex);
+        assert!(re.is_ok());
+    }
+
+    #[test]
+    fn test_glob_to_regex_double_star_slash() {
+        let regex = glob_to_regex("src/**/*.rs");
+        let re = regex::Regex::new(&regex).unwrap();
+        assert!(re.is_match("src/main.rs"));
+        assert!(re.is_match("src/utils/path.rs"));
+        assert!(re.is_match("src/deep/nested/file.rs"));
+    }
+
+    #[test]
+    fn test_glob_to_regex_dots_escaped() {
+        let regex = glob_to_regex("file.txt");
+        let re = regex::Regex::new(&regex).unwrap();
+        assert!(re.is_match("file.txt"));
+        assert!(!re.is_match("fileatxt")); // dot should not match arbitrary char
+    }
+
+    #[test]
+    fn test_expand_glob_pattern_nonexistent_dir() {
+        let results = expand_glob_pattern("/nonexistent_dir_xyz_123/**/*.txt");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_expand_glob_pattern_real_temp_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+        std::fs::write(&file_path, "content").unwrap();
+
+        let pattern = format!("{}/*.txt", dir.path().to_string_lossy());
+        let results = expand_glob_pattern(&pattern);
+        assert!(
+            results.iter().any(|r| r.ends_with("test.txt")),
+            "Expected test.txt in results: {results:?}"
+        );
+    }
 }

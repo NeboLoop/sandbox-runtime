@@ -239,4 +239,58 @@ mod tests {
             vec!["/private/tmp/test", "/private/tmp", "/private"]
         );
     }
+
+    #[test]
+    fn test_normalize_path_tilde() {
+        let home = dirs::home_dir().unwrap();
+        let result = normalize_path_for_sandbox("~/Documents");
+        assert!(result.contains("Documents"));
+        assert!(result.starts_with(home.to_str().unwrap()) || result.starts_with("/"));
+    }
+
+    #[test]
+    fn test_normalize_path_absolute() {
+        let result = normalize_path_for_sandbox("/usr/local/bin");
+        assert!(result.starts_with("/usr/local"));
+    }
+
+    #[test]
+    fn test_normalize_path_glob_preservation() {
+        // Glob characters should be preserved in the output
+        let result = normalize_path_for_sandbox("/tmp/**/*.txt");
+        assert!(result.contains("**"));
+        assert!(result.contains("*.txt"));
+    }
+
+    #[test]
+    fn test_symlink_boundary_var_folders() {
+        // macOS: /var/folders -> /private/var/folders is expected
+        assert!(!is_symlink_outside_boundary(
+            "/var/folders/xx/yy",
+            "/private/var/folders/xx/yy"
+        ));
+    }
+
+    #[test]
+    fn test_symlink_boundary_different_trees() {
+        assert!(is_symlink_outside_boundary("/home/user/data", "/etc/shadow"));
+    }
+
+    #[test]
+    fn test_ancestor_directories_root() {
+        let ancestors = get_ancestor_directories("/file.txt");
+        assert!(ancestors.is_empty());
+    }
+
+    #[test]
+    fn test_ancestor_directories_single_level() {
+        let ancestors = get_ancestor_directories("/home/file.txt");
+        assert_eq!(ancestors, vec!["/home"]);
+    }
+
+    #[test]
+    fn test_ancestor_directories_deep_path() {
+        let ancestors = get_ancestor_directories("/a/b/c/d/e");
+        assert_eq!(ancestors, vec!["/a/b/c/d", "/a/b/c", "/a/b", "/a"]);
+    }
 }

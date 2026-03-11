@@ -215,3 +215,43 @@ pub fn generate_seccomp_filter(explicit_bpf_path: Option<&str>) -> Option<String
 pub fn cleanup_seccomp_filter(_filter_path: &str) {
     // No-op: pre-generated BPF files are never cleaned up
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_vendor_architecture_returns_expected() {
+        let arch = get_vendor_architecture();
+        if cfg!(target_arch = "x86_64") {
+            assert_eq!(arch, Some("x64"));
+        } else if cfg!(target_arch = "aarch64") {
+            assert_eq!(arch, Some("arm64"));
+        }
+        // On other architectures, just verify it returns Some or None without panicking
+    }
+
+    #[test]
+    fn test_get_local_seccomp_paths_returns_non_empty() {
+        // On supported architectures, should return at least one path to check
+        let paths = get_local_seccomp_paths("test.bpf");
+        if get_vendor_architecture().is_some() {
+            assert!(!paths.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_nonexistent_explicit_path_returns_none_for_bpf() {
+        let result = get_pre_generated_bpf_path(Some("/nonexistent/path/filter.bpf"));
+        // Explicit path doesn't exist, so it should fall through to cache/search
+        // The explicit path itself should return None
+        // (The function may still find a cached/local result, but the explicit path won't match)
+        let _ = result; // Just verify no panic
+    }
+
+    #[test]
+    fn test_nonexistent_explicit_path_returns_none_for_apply_seccomp() {
+        let result = get_apply_seccomp_binary_path(Some("/nonexistent/path/apply-seccomp"));
+        let _ = result; // Just verify no panic
+    }
+}

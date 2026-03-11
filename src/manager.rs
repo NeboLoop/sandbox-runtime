@@ -657,7 +657,7 @@ pub struct SandboxDependencyCheck {
 }
 
 /// Filter a network request against the config.
-async fn filter_network_request(
+pub(crate) async fn filter_network_request(
     config: &SandboxRuntimeConfig,
     port: u16,
     host: &str,

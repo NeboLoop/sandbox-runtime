@@ -58,3 +58,53 @@ pub fn get_wsl_version() -> Option<String> {
 pub fn get_wsl_version() -> Option<String> {
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_get_platform_macos() {
+        assert_eq!(get_platform(), Platform::MacOS);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_get_platform_linux() {
+        assert_eq!(get_platform(), Platform::Linux);
+    }
+
+    #[test]
+    fn test_display_macos() {
+        assert_eq!(format!("{}", Platform::MacOS), "macos");
+    }
+
+    #[test]
+    fn test_display_linux() {
+        assert_eq!(format!("{}", Platform::Linux), "linux");
+    }
+
+    #[test]
+    fn test_display_windows() {
+        assert_eq!(format!("{}", Platform::Windows), "windows");
+    }
+
+    #[test]
+    fn test_display_unknown() {
+        assert_eq!(format!("{}", Platform::Unknown), "unknown");
+    }
+
+    #[test]
+    fn test_partial_eq() {
+        assert_eq!(Platform::MacOS, Platform::MacOS);
+        assert_ne!(Platform::MacOS, Platform::Linux);
+        assert_ne!(Platform::Linux, Platform::Windows);
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn test_get_wsl_version_returns_none_on_non_linux() {
+        assert!(get_wsl_version().is_none());
+    }
+}
